@@ -22,9 +22,13 @@ export default function RootLayout({
     <html lang="en">
       <body className="bg-white text-[#102A43] flex flex-col min-h-screen antialiased selection:bg-[#EAF4FF] selection:text-[#1557C0]">
         <AuthProvider>
+          {/* Skip to main content — accessibility for keyboard/screen-reader users */}
+          <a href="#main-content" className="skip-link">
+            Skip to main content
+          </a>
           <DemoBanner />
           <Navbar />
-          <main className="flex-1 pb-16 md:pb-0">{children}</main>
+          <main id="main-content" className="flex-1 pb-16 md:pb-0" tabIndex={-1}>{children}</main>
 
           {/* Footer */}
           <footer className="bg-[#062B68] text-white mt-auto border-t border-[#073B8F]">

@@ -202,20 +202,22 @@ export default function LoginPage() {
 
             {!isRegisterMode ? (
               /* ─── Login Form ─── */
-              <form onSubmit={handleLoginSubmit} className="space-y-4">
+              <form onSubmit={handleLoginSubmit} className="space-y-4" aria-label={`Sign in as ${roleConfig[selectedRole].label}`} noValidate>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1.5">
+                  <label htmlFor="login-email" className="block text-xs font-semibold text-slate-600 mb-1.5">
                     Email address
                   </label>
                   <div className="relative">
-                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
                     <input
-                      type="text"
+                      id="login-email"
+                      type="email"
                       required
                       autoComplete="email"
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
                       placeholder="your@email.com"
+                      aria-required="true"
                       className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-[#1557C0] focus:ring-1 focus:ring-[#1557C0]/20 transition-colors"
                     />
                   </div>
@@ -223,7 +225,7 @@ export default function LoginPage() {
 
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-semibold text-slate-600">Password</label>
+                    <label htmlFor="login-password" className="text-xs font-semibold text-slate-600">Password</label>
                     <button
                       type="button"
                       onClick={() => alert('Please contact Campus Cab support to reset your password.')}
@@ -233,23 +235,26 @@ export default function LoginPage() {
                     </button>
                   </div>
                   <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" aria-hidden="true" />
                     <input
+                      id="login-password"
                       type={showPassword ? 'text' : 'password'}
                       required
                       autoComplete="current-password"
                       value={loginPassword}
                       onChange={(e) => setLoginPassword(e.target.value)}
                       placeholder="••••••••"
+                      aria-required="true"
                       className="w-full pl-10 pr-12 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 placeholder-slate-400 focus:outline-none focus:bg-white focus:border-[#1557C0] focus:ring-1 focus:ring-[#1557C0]/20 transition-colors"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword((v) => !v)}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
                       className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                       tabIndex={-1}
                     >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
                     </button>
                   </div>
                 </div>
@@ -257,6 +262,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={submitting}
+                  aria-busy={submitting}
                   className="w-full mt-1 py-3.5 rounded-xl bg-[#1557C0] hover:bg-[#073B8F] text-white font-bold text-sm shadow-md shadow-[#1557C0]/25 hover:shadow-lg transition-all duration-150 flex items-center justify-center gap-2 disabled:opacity-70"
                 >
                   {submitting && <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />}

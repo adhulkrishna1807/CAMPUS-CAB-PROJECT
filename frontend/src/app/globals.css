@@ -8,6 +8,7 @@
     --foreground: #102A43;
   }
 
+  /* Base typography */
   body {
     background-color: #F8FAFC;
     color: #102A43;
@@ -15,9 +16,115 @@
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
   }
+
+  /* Ensure all headings have visible contrast */
+  h1, h2, h3, h4, h5, h6 {
+    color: #102A43;
+  }
+
+  /* Ensure links are distinguishable */
+  a:not([class]) {
+    color: #1557C0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  a:not([class]):hover {
+    color: #073B8F;
+  }
 }
 
-/* Custom Scrollbar */
+/* ── BUTTON SAFETY ── */
+/* Ensure all buttons always have visible text regardless of state */
+button {
+  /* Minimum color for icon-only buttons */
+  min-width: 2rem;
+  min-height: 2rem;
+}
+
+/* Disabled buttons: keep readable, just reduced opacity */
+button:disabled,
+button[aria-disabled="true"],
+a[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* Ensure bg-white buttons always show text */
+button.bg-white,
+button[class*="bg-white"] {
+  color: #102A43;
+}
+
+/* ── ACCESSIBILITY ── */
+
+/* Skip-to-content link for keyboard/screen-reader users */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 0;
+  z-index: 9999;
+  padding: 0.5rem 1rem;
+  background: #1557C0;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.875rem;
+  border-radius: 0 0 0.5rem 0;
+  text-decoration: none;
+  transition: top 0.1s;
+}
+.skip-link:focus {
+  top: 0;
+}
+
+/* Strong, visible focus ring for all interactive elements */
+:focus-visible {
+  outline: 3px solid #1557C0;
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Remove focus ring for mouse users only */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Ensure buttons never lose their focus state */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #1557C0;
+  outline-offset: 2px;
+}
+
+/* Sufficient contrast for placeholder text (WCAG AA requires 4.5:1) */
+::placeholder {
+  color: #64748B;
+  opacity: 1;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High contrast mode support */
+@media (forced-colors: active) {
+  button, a, input, select, textarea {
+    border: 1px solid ButtonText;
+  }
+}
+
+/* ── CUSTOM SCROLLBAR ── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -33,8 +140,16 @@
   background: #94A3B8;
 }
 
-/* Focus outlines */
-:focus-visible {
-  outline: 2px solid #1557C0;
-  outline-offset: 2px;
+/* ── UTILITY ── */
+/* Visually hidden but screen-reader accessible */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
 }

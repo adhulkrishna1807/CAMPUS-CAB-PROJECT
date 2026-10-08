@@ -87,13 +87,13 @@ export const Navbar: React.FC = () => {
   ];
 
   return (
-    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm">
+    <header className="bg-white border-b border-slate-200 sticky top-0 z-30 shadow-sm" role="banner">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
 
           {/* Logo */}
-          <Link href={user ? getDashboardLink() : '/'} className="flex items-center space-x-2.5 group">
-            <div className="w-9 h-9 rounded-xl bg-[#1557C0] flex items-center justify-center relative shadow-sm group-hover:bg-[#073B8F] transition-colors">
+          <Link href={user ? getDashboardLink() : '/'} className="flex items-center space-x-2.5 group" aria-label="Campus Cab — go to home">
+            <div className="w-9 h-9 rounded-xl bg-[#1557C0] flex items-center justify-center relative shadow-sm group-hover:bg-[#073B8F] transition-colors" aria-hidden="true">
               <Bike className="w-5 h-5 text-white stroke-[2.2]" />
               <MapPin className="w-2.5 h-2.5 text-blue-200 fill-blue-200 absolute -top-0.5 -right-0.5" />
             </div>
@@ -105,11 +105,12 @@ export const Navbar: React.FC = () => {
 
           {/* Desktop Nav — public links only when logged out */}
           {!user && (
-            <nav className="hidden md:flex items-center space-x-1">
+            <nav className="hidden md:flex items-center space-x-1" aria-label="Main navigation">
               {publicLinks.map(({ href, label }) => (
                 <Link
                   key={label}
                   href={href}
+                  aria-current={isActive(href) ? 'page' : undefined}
                   className={`px-3.5 py-2 rounded-lg text-sm font-semibold transition-colors ${
                     isActive(href)
                       ? 'text-[#1557C0] bg-[#EAF4FF]'
@@ -140,11 +141,13 @@ export const Navbar: React.FC = () => {
                   <button
                     onClick={() => setNotificationsOpen(!notificationsOpen)}
                     className="relative p-2 rounded-lg text-[#486581] hover:text-[#1557C0] hover:bg-[#EAF4FF] transition-colors"
-                    aria-label="Notifications"
+                    aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+                    aria-expanded={notificationsOpen}
+                    aria-haspopup="true"
                   >
-                    <Bell className="w-5 h-5" />
+                    <Bell className="w-5 h-5" aria-hidden="true" />
                     {unreadCount > 0 && (
-                      <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-[#1557C0] text-white text-[9px] font-bold rounded-full flex items-center justify-center ring-2 ring-white">
+                      <span className="absolute top-1 right-1 w-3.5 h-3.5 bg-[#1557C0] text-white text-[9px] font-bold rounded-full flex items-center justify-center ring-2 ring-white" aria-hidden="true">
                         {unreadCount > 9 ? '9+' : unreadCount}
                       </span>
                     )}

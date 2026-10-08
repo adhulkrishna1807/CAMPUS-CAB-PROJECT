@@ -32,10 +32,34 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
-  const [riderInfo, setRiderInfo] = useState<RiderInfo | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  
+  // Instant synchronous hydration from localStorage if available
+  const [user, setUser] = useState<User | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('campuscab_user');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [riderInfo, setRiderInfo] = useState<RiderInfo | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const cached = localStorage.getItem('campuscab_rider');
+      return cached ? JSON.parse(cached) : null;
+    } catch {
+      return null;
+    }
+  });
+  const [token, setToken] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return localStorage.getItem('campuscab_token');
+  });
+  const [isLoading, setIsLoading] = useState(() => {
+    if (typeof window === 'undefined') return true;
+    return !localStorage.getItem('campuscab_token');
+  });
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const addToast = useCallback((message: string, type: 'success' | 'error' | 'info' | 'warning' = 'info') => {
@@ -56,6 +80,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       setRiderInfo(null);
       setToken(null);
+      localStorage.removeItem('campuscab_user');
+      localStorage.removeItem('campuscab_rider');
       setIsLoading(false);
       return;
     }
@@ -65,9 +91,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const data = await api.getMe();
       setUser(data.user);
       setRiderInfo(data.rider);
+      localStorage.setItem('campuscab_user', JSON.stringify(data.user));
+      if (data.rider) {
+        localStorage.setItem('campuscab_rider', JSON.stringify(data.rider));
+      }
     } catch (err) {
       console.error('Session expired or invalid token', err);
       localStorage.removeItem('campuscab_token');
+      localStorage.removeItem('campuscab_user');
+      localStorage.removeItem('campuscab_rider');
       setUser(null);
       setRiderInfo(null);
       setToken(null);
@@ -80,10 +112,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     refreshUser();
   }, [refreshUser]);
 
-  const handleAuthSuccess = (accessToken: string, authUser: User) => {
+  const handleAuthSuccess = (accessToken: string, authUser: User, authRider?: RiderInfo | null) => {
     localStorage.setItem('campuscab_token', accessToken);
+    localStorage.setItem('campuscab_user', JSON.stringify(authUser));
+    if (authRider) {
+      localStorage.setItem('campuscab_rider', JSON.stringify(authRider));
+    }
     setToken(accessToken);
     setUser(authUser);
+    if (authRider) setRiderInfo(authRider);
+    setIsLoading(false);
     addToast(`Signed in successfully as ${authUser.name}`, 'success');
 
     if (authUser.role === 'ADMIN') {
@@ -130,6 +168,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     localStorage.removeItem('campuscab_token');
+    localStorage.removeItem('campuscab_user');
+    localStorage.removeItem('campuscab_rider');
     setUser(null);
     setRiderInfo(null);
     setToken(null);

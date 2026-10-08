@@ -1,7 +1,7 @@
 import datetime
 import random
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status, Query
+from fastapi import FastAPI, Depends, HTTPException, status, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -37,12 +37,37 @@ app = FastAPI(
     version="1.0.0"
 )
 
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+from starlette.responses import Response as StarletteResponse
+
+# Security Headers Middleware
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response: StarletteResponse = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=()"
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return response
+
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=500)
+app.add_middleware(SecurityHeadersMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Requested-With"],
 )
 
 @app.on_event("startup")
@@ -123,14 +148,43 @@ async def register_user(data: UserRegister, db: AsyncSession = Depends(get_db)):
     token = create_access_token({"sub": new_user.id, "role": new_user.role, "name": new_user.name})
     return {"access_token": token, "token_type": "bearer", "user": new_user}
 
+# Simple in-memory rate limiting for login endpoint (per IP)
+import time
+from collections import defaultdict
+
+_login_attempts: dict = defaultdict(list)  # ip -> [timestamps]
+_RATE_LIMIT_MAX = 10   # max attempts
+_RATE_LIMIT_WINDOW = 60  # seconds
+
+def _check_rate_limit(client_ip: str):
+    now = time.time()
+    attempts = _login_attempts[client_ip]
+    # Remove old attempts outside window
+    _login_attempts[client_ip] = [t for t in attempts if now - t < _RATE_LIMIT_WINDOW]
+    if len(_login_attempts[client_ip]) >= _RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many login attempts. Please wait a moment before trying again.",
+            headers={"Retry-After": "60"}
+        )
+    _login_attempts[client_ip].append(now)
+
 @app.post("/api/auth/login", response_model=TokenResponse)
-async def login_user(data: UserLogin, db: AsyncSession = Depends(get_db)):
+async def login_user(data: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
+    # Rate limit by client IP
+    client_ip = request.client.host if request.client else "unknown"
+    _check_rate_limit(client_ip)
+
     result = await db.execute(select(User).where(User.email == data.email.lower().strip()))
     user = result.scalars().first()
+    # Generic error to prevent user enumeration
     if not user or not verify_password(data.password, user.password_hash):
-        raise HTTPException(status_code=400, detail="Invalid email or password.")
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled. Please contact admin.")
+
+    # Clear rate limit on successful login
+    _login_attempts.pop(client_ip, None)
 
     token = create_access_token({"sub": user.id, "role": user.role, "name": user.name})
     return {"access_token": token, "token_type": "bearer", "user": user}

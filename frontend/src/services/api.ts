@@ -12,7 +12,26 @@ class ApiService {
     return localStorage.getItem('campuscab_token');
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private pendingRequests = new Map<string, Promise<any>>();
+  private cache = new Map<string, { data: any; expiry: number }>();
+
+  private async request<T>(endpoint: string, options: RequestInit = {}, cacheTtlMs: number = 0): Promise<T> {
+    const isGet = !options.method || options.method === 'GET';
+    const cacheKey = `${endpoint}_${this.getToken() || ''}`;
+
+    // Return cached response if valid
+    if (isGet && cacheTtlMs > 0) {
+      const cached = this.cache.get(cacheKey);
+      if (cached && cached.expiry > Date.now()) {
+        return cached.data as T;
+      }
+    }
+
+    // Deduplicate in-flight GET requests
+    if (isGet && this.pendingRequests.has(cacheKey)) {
+      return this.pendingRequests.get(cacheKey) as Promise<T>;
+    }
+
     const token = this.getToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -28,31 +47,42 @@ class ApiService {
       headers,
     };
 
-    try {
-      const res = await fetch(`${API_BASE}${endpoint}`, config);
-      
-      if (!res.ok) {
-        let errorMsg = `Error ${res.status}: ${res.statusText}`;
-        try {
-          const errData = await res.json();
-          if (errData && errData.detail) {
-            if (typeof errData.detail === 'string') {
-              errorMsg = errData.detail;
-            } else if (Array.isArray(errData.detail)) {
-              errorMsg = errData.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+    const fetchPromise = (async () => {
+      try {
+        const res = await fetch(`${API_BASE}${endpoint}`, config);
+        
+        if (!res.ok) {
+          let errorMsg = `Error ${res.status}: ${res.statusText}`;
+          try {
+            const errData = await res.json();
+            if (errData && errData.detail) {
+              if (typeof errData.detail === 'string') {
+                errorMsg = errData.detail;
+              } else if (Array.isArray(errData.detail)) {
+                errorMsg = errData.detail.map((d: any) => d.msg || JSON.stringify(d)).join(', ');
+              }
             }
+          } catch {
+            // keep fallback errorMsg
           }
-        } catch {
-          // keep fallback errorMsg
+          throw new Error(errorMsg);
         }
-        throw new Error(errorMsg);
-      }
 
-      return await res.json() as T;
-    } catch (err: any) {
-      console.error(`API Request Failed: ${endpoint}`, err);
-      throw err;
+        const data = (await res.json()) as T;
+        if (isGet && cacheTtlMs > 0) {
+          this.cache.set(cacheKey, { data, expiry: Date.now() + cacheTtlMs });
+        }
+        return data;
+      } finally {
+        this.pendingRequests.delete(cacheKey);
+      }
+    })();
+
+    if (isGet) {
+      this.pendingRequests.set(cacheKey, fetchPromise);
     }
+
+    return fetchPromise;
   }
 
   // --- Auth ---
@@ -90,7 +120,7 @@ class ApiService {
 
   // --- Fares ---
   async getFares(): Promise<FareRoute[]> {
-    return this.request('/api/fares');
+    return this.request('/api/fares', {}, 60000);
   }
 
   async calculateFare(from_location: string, to_location: string, passengers: number): Promise<FareCalculationResult> {
