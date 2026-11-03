@@ -12,28 +12,27 @@ from app.config import settings
 from app.database import engine, Base, get_db
 from app.models import (
     User, Rider, Vehicle, FareRoute, RideRequest, Rental,
-    LaundryOrder, Notification, BookingStatusHistory, AdminAction
+    Notification, BookingStatusHistory, AdminAction
 )
 
 CustomerUser = aliased(User, name="cust_user")
 RiderUser = aliased(User, name="rider_user")
 from app.schemas import (
-    UserRegister, UserLogin, DemoLoginRequest, UserOut, TokenResponse, UserProfileUpdate,
+    UserRegister, RiderRegister, UserLogin, DemoLoginRequest, UserOut, TokenResponse, UserProfileUpdate,
     FareRouteOut, FareCalculationRequest, FareCalculationResponse, FareRouteCreate, FareRouteUpdate,
     RideCreate, RideOut, RideStatusUpdate,
     RentalCreate, RentalOut, RentalReturnRequest,
-    LaundryCreate, LaundryOut, LaundryStatusUpdate,
-    NotificationOut, RiderCreate, RiderUpdate, AdminAnalyticsOut
+    NotificationOut, RiderCreate, RiderUpdate, RiderApprovalOut, RiderApprovalAction, AdminAnalyticsOut
 )
 from app.auth import (
     hash_password, verify_password, create_access_token,
-    get_current_user, require_role
+    get_current_user, require_role, require_approved_rider
 )
 from app.seeds import seed_database
 
 app = FastAPI(
     title="Campus Cab API",
-    description="Campus Mobility, Laundry & Rental Management Platform API",
+    description="Campus Mobility & Vehicle Rental Management Platform API",
     version="1.0.0"
 )
 
@@ -140,13 +139,85 @@ async def register_user(data: UserRegister, db: AsyncSession = Depends(get_db)):
     await send_notification(
         db, new_user.id,
         "Welcome to Campus Cab!",
-        "Your account is ready. Book rides, vehicle rentals, and laundry anytime.",
+        "Your account is ready. Book rides and vehicle rentals anytime.",
         "SYSTEM"
     )
     await db.commit()
 
     token = create_access_token({"sub": new_user.id, "role": new_user.role, "name": new_user.name})
     return {"access_token": token, "token_type": "bearer", "user": new_user}
+
+@app.post("/api/auth/register-rider", response_model=TokenResponse)
+async def register_rider(data: RiderRegister, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == data.email.lower()))
+    if result.scalars().first():
+        raise HTTPException(status_code=400, detail="An account with this email already exists.")
+
+    new_user = User(
+        name=data.name.strip(),
+        email=data.email.lower().strip(),
+        phone=data.phone.strip(),
+        password_hash=hash_password(data.password),
+        role="RIDER",
+        is_active=True
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+
+    new_rider = Rider(
+        user_id=new_user.id,
+        vehicle_type=data.vehicle_type.capitalize(),
+        vehicle_number=data.vehicle_number.strip().upper(),
+        driving_license=data.driving_license.strip().upper(),
+        approval_status="PENDING_APPROVAL",
+        availability_status="Offline",
+        rating=5.0
+    )
+    db.add(new_rider)
+    await db.commit()
+    await db.refresh(new_rider)
+
+    # Register vehicle
+    new_vehicle = Vehicle(
+        rider_id=new_rider.id,
+        type=new_rider.vehicle_type.upper(),
+        registration_number=new_rider.vehicle_number,
+        status="Inactive"
+    )
+    db.add(new_vehicle)
+
+    # Welcome / Status notification to the Rider
+    await send_notification(
+        db, new_user.id,
+        "Registration Submitted",
+        "Your registration has been submitted successfully. Your account is waiting for Admin approval. You will be able to access the Rider Dashboard once your account is approved.",
+        "SYSTEM"
+    )
+
+    # Notify Admins about new pending rider application
+    admin_users_res = await db.execute(select(User).where(User.role == "ADMIN"))
+    admins = admin_users_res.scalars().all()
+    for adm in admins:
+        await send_notification(
+            db, adm.id,
+            "New Rider Application",
+            f"New rider application received from {new_user.name} ({new_rider.vehicle_type} - {new_rider.vehicle_number}). Pending approval.",
+            "SYSTEM"
+        )
+    await db.commit()
+
+    token = create_access_token({"sub": new_user.id, "role": new_user.role, "name": new_user.name})
+    rider_dict = {
+        "id": new_rider.id,
+        "vehicle_type": new_rider.vehicle_type,
+        "vehicle_number": new_rider.vehicle_number,
+        "driving_license": new_rider.driving_license,
+        "approval_status": new_rider.approval_status,
+        "availability_status": new_rider.availability_status,
+        "rating": new_rider.rating
+    }
+    return {"access_token": token, "token_type": "bearer", "user": new_user, "rider": rider_dict}
 
 # Simple in-memory rate limiting for login endpoint (per IP)
 import time
@@ -186,8 +257,23 @@ async def login_user(data: UserLogin, request: Request, db: AsyncSession = Depen
     # Clear rate limit on successful login
     _login_attempts.pop(client_ip, None)
 
+    rider_dict = None
+    if user.role == "RIDER":
+        r_res = await db.execute(select(Rider).where(Rider.user_id == user.id))
+        rider = r_res.scalars().first()
+        if rider:
+            rider_dict = {
+                "id": rider.id,
+                "vehicle_type": rider.vehicle_type,
+                "vehicle_number": rider.vehicle_number,
+                "driving_license": rider.driving_license,
+                "approval_status": rider.approval_status,
+                "availability_status": rider.availability_status,
+                "rating": rider.rating
+            }
+
     token = create_access_token({"sub": user.id, "role": user.role, "name": user.name})
-    return {"access_token": token, "token_type": "bearer", "user": user}
+    return {"access_token": token, "token_type": "bearer", "user": user, "rider": rider_dict}
 
 @app.post("/api/auth/demo-login", response_model=TokenResponse)
 async def demo_login(req: DemoLoginRequest, db: AsyncSession = Depends(get_db)):
@@ -209,8 +295,23 @@ async def demo_login(req: DemoLoginRequest, db: AsyncSession = Depends(get_db)):
         result = await db.execute(select(User).where(User.email == email))
         user = result.scalars().first()
 
+    rider_dict = None
+    if user.role == "RIDER":
+        r_res = await db.execute(select(Rider).where(Rider.user_id == user.id))
+        rider = r_res.scalars().first()
+        if rider:
+            rider_dict = {
+                "id": rider.id,
+                "vehicle_type": rider.vehicle_type,
+                "vehicle_number": rider.vehicle_number,
+                "driving_license": rider.driving_license,
+                "approval_status": rider.approval_status,
+                "availability_status": rider.availability_status,
+                "rating": rider.rating
+            }
+
     token = create_access_token({"sub": user.id, "role": user.role, "name": user.name})
-    return {"access_token": token, "token_type": "bearer", "user": user}
+    return {"access_token": token, "token_type": "bearer", "user": user, "rider": rider_dict}
 
 @app.get("/api/auth/me")
 async def get_me(current_user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)):
@@ -223,6 +324,8 @@ async def get_me(current_user: User = Depends(get_current_user), db: AsyncSessio
                 "id": rider.id,
                 "vehicle_type": rider.vehicle_type,
                 "vehicle_number": rider.vehicle_number,
+                "driving_license": rider.driving_license,
+                "approval_status": rider.approval_status,
                 "availability_status": rider.availability_status,
                 "rating": rider.rating
             }
@@ -414,7 +517,7 @@ async def get_my_rides(
 
 @app.get("/api/rides/pending", response_model=List[RideOut])
 async def get_pending_rides(
-    current_user: User = Depends(require_role(["RIDER", "ADMIN"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(RideRequest, CustomerUser).join(CustomerUser, RideRequest.user_id == CustomerUser.id)\
@@ -442,7 +545,7 @@ async def get_pending_rides(
 
 @app.get("/api/rides/active", response_model=List[RideOut])
 async def get_rider_active_rides(
-    current_user: User = Depends(require_role(["RIDER"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     rider_res = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
@@ -527,7 +630,7 @@ async def get_all_rides(
 @app.post("/api/rides/{ride_id}/accept")
 async def accept_ride(
     ride_id: int,
-    current_user: User = Depends(require_role(["RIDER"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     rider_res = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
@@ -739,7 +842,7 @@ async def get_my_rentals(
 
 @app.get("/api/rentals/pending", response_model=List[RentalOut])
 async def get_pending_rentals(
-    current_user: User = Depends(require_role(["RIDER", "ADMIN"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     query = select(Rental, CustomerUser).join(CustomerUser, Rental.user_id == CustomerUser.id)\
@@ -811,7 +914,7 @@ async def get_all_rentals(
 @app.post("/api/rentals/{rental_id}/accept")
 async def accept_rental(
     rental_id: int,
-    current_user: User = Depends(require_role(["RIDER", "ADMIN"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     rider_res = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
@@ -842,7 +945,7 @@ async def accept_rental(
 async def update_rental_status(
     rental_id: int,
     status_val: str = Query(..., alias="status"),
-    current_user: User = Depends(require_role(["RIDER", "ADMIN"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Rental).where(Rental.id == rental_id))
@@ -864,7 +967,7 @@ async def update_rental_status(
 async def return_rental(
     rental_id: int,
     data: RentalReturnRequest,
-    current_user: User = Depends(require_role(["RIDER", "ADMIN"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     result = await db.execute(select(Rental).where(Rental.id == rental_id))
@@ -904,126 +1007,6 @@ async def return_rental(
         "refund_amount": rental.refund_amount,
         "status": rental.status
     }
-
-# -------------------------------------------------------------
-# LAUNDRY MANAGEMENT ENDPOINTS
-# -------------------------------------------------------------
-
-@app.post("/api/laundry", response_model=LaundryOut)
-async def create_laundry(
-    req: LaundryCreate,
-    current_user: User = Depends(require_role(["USER", "ADMIN"])),
-    db: AsyncSession = Depends(get_db)
-):
-    # Pricing formula: Weight * ₹65 + ₹25 extra charge
-    rate = settings.LAUNDRY_RATE_PER_KG
-    extra = settings.LAUNDRY_EXTRA_CHARGE
-    total = (req.weight_kg * rate) + extra
-
-    booking_id = generate_booking_id("LAUNDRY")
-    order = LaundryOrder(
-        booking_id=booking_id,
-        user_id=current_user.id,
-        name=req.name.strip(),
-        phone=req.phone.strip(),
-        pickup_location=req.pickup_location.strip(),
-        hostel=req.hostel.strip() if req.hostel else None,
-        room_number=req.room_number.strip() if req.room_number else None,
-        weight_kg=req.weight_kg,
-        rate_per_kg=rate,
-        extra_charge=extra,
-        total_amount=total,
-        pickup_day=req.pickup_day,
-        status="PENDING",
-        created_at=datetime.datetime.utcnow()
-    )
-    db.add(order)
-    await db.commit()
-    await db.refresh(order)
-
-    # Notify Admin
-    admin_res = await db.execute(select(User).where(User.role == "ADMIN"))
-    admins = admin_res.scalars().all()
-    for adm in admins:
-        await send_notification(
-            db, adm.id,
-            "New Laundry Order",
-            f"New laundry order {order.booking_id} ({order.weight_kg}kg, ₹{int(order.total_amount)}) from {order.pickup_location}.",
-            "LAUNDRY"
-        )
-    await db.commit()
-    return order
-
-@app.get("/api/laundry/my", response_model=List[LaundryOut])
-async def get_my_laundry(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db)
-):
-    res = await db.execute(
-        select(LaundryOrder).where(LaundryOrder.user_id == current_user.id).order_by(desc(LaundryOrder.created_at))
-    )
-    return res.scalars().all()
-
-@app.get("/api/laundry/admin", response_model=List[LaundryOut])
-async def get_all_laundry(
-    status_filter: Optional[str] = None,
-    current_user: User = Depends(require_role(["ADMIN"])),
-    db: AsyncSession = Depends(get_db)
-):
-    query = select(LaundryOrder).order_by(desc(LaundryOrder.created_at))
-    if status_filter and status_filter.upper() != "ALL":
-        query = query.where(LaundryOrder.status == status_filter.upper())
-    res = await db.execute(query)
-    return res.scalars().all()
-
-LAUNDRY_STATUS_FLOW = [
-    "PENDING",
-    "PICKUP_SCHEDULED",
-    "COLLECTED",
-    "PROCESSING",
-    "READY",
-    "DELIVERED",
-    "COMPLETED",
-    "CANCELLED"
-]
-
-@app.patch("/api/laundry/{laundry_id}/status")
-async def update_laundry_status(
-    laundry_id: int,
-    data: LaundryStatusUpdate,
-    current_user: User = Depends(require_role(["ADMIN"])),
-    db: AsyncSession = Depends(get_db)
-):
-    result = await db.execute(select(LaundryOrder).where(LaundryOrder.id == laundry_id))
-    order = result.scalars().first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Laundry order not found.")
-
-    new_status = data.status.upper()
-    if new_status not in LAUNDRY_STATUS_FLOW:
-        raise HTTPException(status_code=400, detail=f"Invalid laundry status. Allowed: {LAUNDRY_STATUS_FLOW}")
-
-    order.status = new_status
-
-    status_messages = {
-        "PICKUP_SCHEDULED": f"Laundry pickup scheduled for upcoming {order.pickup_day}.",
-        "COLLECTED": f"Your laundry ({order.weight_kg}kg) has been collected by our team.",
-        "PROCESSING": "Your laundry is currently being washed and dried.",
-        "READY": "Your clean laundry is packed and ready for delivery.",
-        "DELIVERED": "Your laundry has been delivered to your campus location.",
-        "COMPLETED": "Laundry order completed. Thank you for choosing Campus Cab!",
-        "CANCELLED": "Laundry order has been cancelled."
-    }
-    msg = status_messages.get(new_status, f"Status updated to {new_status}")
-    await send_notification(db, order.user_id, f"Laundry Update: {new_status.replace('_', ' ')}", msg, "LAUNDRY")
-
-    await log_admin_action(
-        db, current_user, "LAUNDRY_STATUS_UPDATE", order.booking_id,
-        f"Changed status to {new_status}"
-    )
-
-    await db.commit()
-    return {"message": "Laundry status updated", "booking_id": order.booking_id, "status": order.status}
 
 # -------------------------------------------------------------
 # NOTIFICATIONS ENDPOINTS
@@ -1074,7 +1057,7 @@ async def mark_all_notifications_read(
 @app.patch("/api/rider/availability")
 async def update_rider_availability(
     status_val: str = Query(..., alias="status"),
-    current_user: User = Depends(require_role(["RIDER"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     val = status_val.capitalize()
@@ -1092,7 +1075,7 @@ async def update_rider_availability(
 
 @app.get("/api/rider/stats")
 async def get_rider_stats(
-    current_user: User = Depends(require_role(["RIDER"])),
+    current_user: User = Depends(require_approved_rider),
     db: AsyncSession = Depends(get_db)
 ):
     res = await db.execute(select(Rider).where(Rider.user_id == current_user.id))

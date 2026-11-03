@@ -36,6 +36,43 @@ class UserRegister(BaseModel):
             raise ValueError("Phone number must have at least 10 digits")
         return v
 
+class RiderRegister(BaseModel):
+    name: str = Field(..., min_length=2, max_length=100)
+    email: str = Field(..., min_length=5)
+    phone: str = Field(..., min_length=10, max_length=15)
+    password: str = Field(..., min_length=6)
+    confirm_password: str = Field(..., min_length=6)
+    vehicle_type: str = Field(..., pattern="^(Bike|Scooty|bike|scooty)$")
+    vehicle_number: str = Field(..., min_length=3, max_length=50)
+    driving_license: str = Field(..., min_length=3, max_length=100)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email_format(cls, v):
+        if not re.match(r"^[^@]+@[^@]+\.[^@]+$", v.strip()):
+            raise ValueError("Invalid email format")
+        return v.strip().lower()
+
+    @field_validator("confirm_password")
+    @classmethod
+    def passwords_match(cls, v, info):
+        if "password" in info.data and v != info.data["password"]:
+            raise ValueError("Passwords do not match")
+        return v
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v):
+        digits = "".join(filter(str.isdigit, v))
+        if len(digits) < 10:
+            raise ValueError("Phone number must have at least 10 digits")
+        return v
+
+    @field_validator("vehicle_type")
+    @classmethod
+    def normalize_vehicle(cls, v):
+        return v.capitalize()
+
 class UserLogin(BaseModel):
     email: str
     password: str
@@ -66,6 +103,7 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+    rider: Optional[dict] = None
 
 # --- Fare Schemas ---
 
@@ -118,6 +156,8 @@ class RiderInfoOut(BaseModel):
     phone: str
     vehicle_type: str
     vehicle_number: str
+    driving_license: Optional[str] = None
+    approval_status: str = "APPROVED"
     rating: float
     availability_status: str
 
@@ -196,48 +236,6 @@ class RentalOut(BaseModel):
     class Config:
         from_attributes = True
 
-# --- Laundry Schemas ---
-
-class LaundryCreate(BaseModel):
-    name: str = Field(..., min_length=2)
-    phone: str = Field(..., min_length=10)
-    pickup_location: str
-    hostel: Optional[str] = None
-    room_number: Optional[str] = None
-    weight_kg: float = Field(..., gt=0)
-    pickup_day: str
-
-    @field_validator("pickup_day")
-    @classmethod
-    def validate_pickup_day(cls, v):
-        day_normalized = v.strip().capitalize()
-        if day_normalized not in ["Wednesday", "Saturday"]:
-            raise ValueError("Laundry pickup is available only on Wednesday and Saturday.")
-        return day_normalized
-
-class LaundryStatusUpdate(BaseModel):
-    status: str
-
-class LaundryOut(BaseModel):
-    id: int
-    booking_id: str
-    user_id: int
-    name: str
-    phone: str
-    pickup_location: str
-    hostel: Optional[str] = None
-    room_number: Optional[str] = None
-    weight_kg: float
-    rate_per_kg: float
-    extra_charge: float
-    total_amount: float
-    pickup_day: str
-    status: str
-    created_at: datetime.datetime
-
-    class Config:
-        from_attributes = True
-
 # --- Notification Schemas ---
 
 class NotificationOut(BaseModel):
@@ -252,7 +250,7 @@ class NotificationOut(BaseModel):
     class Config:
         from_attributes = True
 
-# --- Admin Rider Management ---
+# --- Admin Rider Management & Approvals ---
 
 class RiderCreate(BaseModel):
     name: str
@@ -261,14 +259,31 @@ class RiderCreate(BaseModel):
     password: str = "Rider@123"
     vehicle_type: str = "Bike"
     vehicle_number: str
+    driving_license: Optional[str] = None
 
 class RiderUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     vehicle_type: Optional[str] = None
     vehicle_number: Optional[str] = None
+    driving_license: Optional[str] = None
     availability_status: Optional[str] = None
+    approval_status: Optional[str] = None
     is_active: Optional[bool] = None
+
+class RiderApprovalOut(BaseModel):
+    id: int
+    user_id: int
+    name: str
+    email: str
+    phone: str
+    vehicle_type: str
+    vehicle_number: str
+    driving_license: Optional[str] = None
+    approval_status: str
+    rating: float
+    availability_status: str
+    created_at: datetime.datetime
 
 # --- Analytics & Reports ---
 
@@ -278,14 +293,15 @@ class AdminAnalyticsOut(BaseModel):
     pending_rides: int
     active_riders: int
     rental_requests: int
-    laundry_orders: int
+    pending_rider_approvals: int = 0
     total_revenue: float
     today_rides: int
     today_rentals: int
-    today_laundry: int
     today_revenue: float
     rides_by_day: List[dict]
-    laundry_by_day: List[dict]
     rentals_by_day: List[dict]
     revenue_by_service: List[dict]
     service_distribution: List[dict]
+
+class RiderApprovalAction(BaseModel):
+    status: str = Field(..., pattern="^(APPROVED|REJECTED)$")

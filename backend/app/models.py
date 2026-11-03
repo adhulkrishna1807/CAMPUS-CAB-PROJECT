@@ -25,7 +25,6 @@ class User(Base):
     rider_profile = relationship("Rider", back_populates="user", uselist=False)
     ride_requests = relationship("RideRequest", back_populates="user", foreign_keys="RideRequest.user_id")
     rentals = relationship("Rental", back_populates="user", foreign_keys="Rental.user_id")
-    laundry_orders = relationship("LaundryOrder", back_populates="user")
     notifications = relationship("Notification", back_populates="user")
 
 
@@ -36,6 +35,8 @@ class Rider(Base):
     user_id = Column(Integer, ForeignKey("users.id"), unique=True, nullable=False)
     vehicle_type = Column(String(50), default="Bike")  # Bike, Scooty
     vehicle_number = Column(String(50), nullable=False)
+    driving_license = Column(String(100), nullable=True)
+    approval_status = Column(String(50), default="APPROVED")  # PENDING_APPROVAL, APPROVED, REJECTED
     availability_status = Column(String(20), default="Available")  # Available, Busy, Offline
     rating = Column(Float, default=4.9)
     created_at = Column(DateTime, default=utcnow)
@@ -111,27 +112,6 @@ class Rental(Base):
     user = relationship("User", back_populates="rentals", foreign_keys=[user_id])
     rider = relationship("Rider", back_populates="assigned_rentals", foreign_keys=[rider_id])
 
-
-class LaundryOrder(Base):
-    __tablename__ = "laundry_orders"
-
-    id = Column(Integer, primary_key=True, index=True)
-    booking_id = Column(String(50), unique=True, index=True, nullable=False)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    name = Column(String(100), nullable=False)
-    phone = Column(String(20), nullable=False)
-    pickup_location = Column(String(100), nullable=False)
-    hostel = Column(String(100), nullable=True)
-    room_number = Column(String(50), nullable=True)
-    weight_kg = Column(Float, nullable=False)
-    rate_per_kg = Column(Float, default=65.0, nullable=False)
-    extra_charge = Column(Float, default=25.0, nullable=False)
-    total_amount = Column(Float, nullable=False)
-    pickup_day = Column(String(20), nullable=False)  # Wednesday, Saturday
-    status = Column(String(30), default="PENDING", nullable=False)  # PENDING, PICKUP_SCHEDULED, COLLECTED, PROCESSING, READY, DELIVERED, COMPLETED, CANCELLED
-    created_at = Column(DateTime, default=utcnow)
-
-    user = relationship("User", back_populates="laundry_orders")
 
 
 class Notification(Base):

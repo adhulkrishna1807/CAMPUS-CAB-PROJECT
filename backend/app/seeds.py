@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.models import (
     User, Rider, Vehicle, FareRoute, RideRequest, Rental,
-    LaundryOrder, Notification, AdminAction
+    Notification, AdminAction
 )
 from app.auth import hash_password
 
@@ -53,7 +53,7 @@ async def seed_database(db: AsyncSession):
 
     # 1. Clear existing data in reverse dependency order
     tables = [
-        AdminAction, Notification, LaundryOrder, Rental,
+        AdminAction, Notification, Rental,
         RideRequest, Vehicle, Rider, FareRoute, User
     ]
     for table in tables:
@@ -152,7 +152,7 @@ async def seed_database(db: AsyncSession):
     )
     db.add(student5)
 
-    # Demo Rider User (Vishnu)
+    # Demo Rider User (Vishnu) - Approved
     demo_rider_user = User(
         name="Vishnu",
         email="rider@campuscab.demo",
@@ -164,7 +164,7 @@ async def seed_database(db: AsyncSession):
     )
     db.add(demo_rider_user)
 
-    # Rider 2 (Akash)
+    # Rider 2 (Akash) - Approved
     rider2_user = User(
         name="Akash",
         email="akash@campuscab.demo",
@@ -176,7 +176,7 @@ async def seed_database(db: AsyncSession):
     )
     db.add(rider2_user)
 
-    # Rider 3 (Naveen)
+    # Rider 3 (Naveen) - Approved
     rider3_user = User(
         name="Naveen",
         email="naveen@campuscab.demo",
@@ -188,7 +188,7 @@ async def seed_database(db: AsyncSession):
     )
     db.add(rider3_user)
 
-    # Rider 4 (Karthik)
+    # Rider 4 (Karthik) - Approved
     rider4_user = User(
         name="Karthik",
         email="karthik@campuscab.demo",
@@ -200,6 +200,18 @@ async def seed_database(db: AsyncSession):
     )
     db.add(rider4_user)
 
+    # Applicant Rider (Suresh) - Pending Approval for demonstration
+    applicant_user = User(
+        name="Suresh V",
+        email="suresh@campuscab.demo",
+        phone="9876543230",
+        password_hash=hash_password("Rider@123"),
+        role="RIDER",
+        is_active=True,
+        created_at=now - datetime.timedelta(hours=3)
+    )
+    db.add(applicant_user)
+
     await db.commit()
 
     # 4. Seed Rider Profiles
@@ -207,6 +219,8 @@ async def seed_database(db: AsyncSession):
         user_id=demo_rider_user.id,
         vehicle_type="Bike",
         vehicle_number="TN-DEMO-01",
+        driving_license="DL-TN-DEMO-01",
+        approval_status="APPROVED",
         availability_status="Available",
         rating=4.9
     )
@@ -216,6 +230,8 @@ async def seed_database(db: AsyncSession):
         user_id=rider2_user.id,
         vehicle_type="Bike",
         vehicle_number="TN-01-AB-1234",
+        driving_license="DL-TN-01-2023-1234",
+        approval_status="APPROVED",
         availability_status="Available",
         rating=4.8
     )
@@ -225,6 +241,8 @@ async def seed_database(db: AsyncSession):
         user_id=rider3_user.id,
         vehicle_type="Scooty",
         vehicle_number="PY-01-CD-5678",
+        driving_license="DL-PY-01-2023-5678",
+        approval_status="APPROVED",
         availability_status="Available",
         rating=4.95
     )
@@ -234,10 +252,24 @@ async def seed_database(db: AsyncSession):
         user_id=rider4_user.id,
         vehicle_type="Bike",
         vehicle_number="TN-32-EF-9012",
+        driving_license="DL-TN-32-2023-9012",
+        approval_status="APPROVED",
         availability_status="Busy",
         rating=4.7
     )
     db.add(rider4)
+
+    rider_applicant = Rider(
+        user_id=applicant_user.id,
+        vehicle_type="Scooty",
+        vehicle_number="PY-01-CR-5544",
+        driving_license="DL-PY-01-2024-00123",
+        approval_status="PENDING_APPROVAL",
+        availability_status="Offline",
+        rating=5.0,
+        created_at=now - datetime.timedelta(hours=3)
+    )
+    db.add(rider_applicant)
 
     await db.commit()
 
@@ -246,10 +278,11 @@ async def seed_database(db: AsyncSession):
     veh2 = Vehicle(rider_id=rider2.id, type="BIKE", registration_number="TN-01-AB-1234", status="Active")
     veh3 = Vehicle(rider_id=rider3.id, type="SCOOTY", registration_number="PY-01-CD-5678", status="Active")
     veh4 = Vehicle(rider_id=rider4.id, type="BIKE", registration_number="TN-32-EF-9012", status="Active")
-    db.add_all([veh1, veh2, veh3, veh4])
+    veh5 = Vehicle(rider_id=rider_applicant.id, type="SCOOTY", registration_number="PY-01-CR-5544", status="Pending")
+    db.add_all([veh1, veh2, veh3, veh4, veh5])
     await db.commit()
 
-    # 6. Seed Pending Demo Requests (Critical for instant competition presentation)
+    # 6. Seed Pending Demo Requests
     # Demo Pending Ride (Rahul Menon -> Boys Hostel to Gate 2, 1 pass, ₹30)
     ride_pending = RideRequest(
         booking_id="CC-RIDE-1001",
@@ -278,25 +311,6 @@ async def seed_database(db: AsyncSession):
         created_at=now - datetime.timedelta(minutes=25)
     )
     db.add(rental_pending)
-
-    # Demo Pending Laundry (Rahul Menon -> 3kg, ₹195 + ₹25 = ₹220, Saturday)
-    laundry_pending = LaundryOrder(
-        booking_id="CC-LAUNDRY-1001",
-        user_id=demo_student.id,
-        name="Rahul Menon",
-        phone="9876543210",
-        pickup_location="Boys Hostel",
-        hostel="Boys Hostel",
-        room_number="B-204",
-        weight_kg=3.0,
-        rate_per_kg=65.0,
-        extra_charge=25.0,
-        total_amount=220.0,
-        pickup_day="Saturday",
-        status="PENDING",
-        created_at=now - datetime.timedelta(minutes=40)
-    )
-    db.add(laundry_pending)
 
     # 7. Seed Historical Completed & Active Records
     # Active Accepted Ride
@@ -409,49 +423,12 @@ async def seed_database(db: AsyncSession):
     )
     db.add(rental_active)
 
-    # Historical Completed & In-progress Laundry Orders
-    laundry_completed = LaundryOrder(
-        booking_id="CC-LAUNDRY-0998",
-        user_id=demo_student.id,
-        name="Rahul Menon",
-        phone="9876543210",
-        pickup_location="Boys Hostel",
-        hostel="Boys Hostel",
-        room_number="B-204",
-        weight_kg=2.0,
-        rate_per_kg=65.0,
-        extra_charge=25.0,
-        total_amount=155.0,
-        pickup_day="Wednesday",
-        status="COMPLETED",
-        created_at=now - datetime.timedelta(days=3)
-    )
-    db.add(laundry_completed)
-
-    laundry_processing = LaundryOrder(
-        booking_id="CC-LAUNDRY-0999",
-        user_id=student5.id,
-        name="Meera Krishnan",
-        phone="9876543214",
-        pickup_location="Girls Hostel",
-        hostel="Girls Hostel",
-        room_number="G-215",
-        weight_kg=4.0,
-        rate_per_kg=65.0,
-        extra_charge=25.0,
-        total_amount=285.0,
-        pickup_day="Saturday",
-        status="PROCESSING",
-        created_at=now - datetime.timedelta(days=1)
-    )
-    db.add(laundry_processing)
-
     # 8. Notifications
     notifs = [
         Notification(
             user_id=demo_student.id,
             title="Welcome to Campus Cab! 🚀",
-            message="Book campus bike rides, laundry, and scooty rentals conveniently anytime.",
+            message="Book campus bike rides and vehicle rentals conveniently anytime.",
             type="SYSTEM",
             is_read=True,
             created_at=now - datetime.timedelta(days=5)
@@ -474,11 +451,11 @@ async def seed_database(db: AsyncSession):
         ),
         Notification(
             user_id=admin_user.id,
-            title="New Laundry Order Received",
-            message="Order CC-LAUNDRY-1001 (3 kg) from Boys Hostel pending review.",
-            type="LAUNDRY",
+            title="New Rider Application Received",
+            message="New rider application from Suresh V (Scooty PY-01-CR-5544) is pending your approval.",
+            type="SYSTEM",
             is_read=False,
-            created_at=now - datetime.timedelta(minutes=40)
+            created_at=now - datetime.timedelta(hours=3)
         ),
     ]
     db.add_all(notifs)
@@ -495,4 +472,4 @@ async def seed_database(db: AsyncSession):
     db.add(audit)
 
     await db.commit()
-    print("Database successfully seeded with Campus Cab data!")
+    print("Database successfully seeded with Campus Cab data (Laundry removed, Rider approval enabled)!")

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from app.config import settings
 from app.database import get_db
-from app.models import User
+from app.models import User, Rider
 
 security = HTTPBearer(auto_error=False)
 
@@ -96,3 +96,33 @@ def require_role(allowed_roles: List[str]):
             )
         return current_user
     return role_checker
+
+async def require_approved_rider(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    if current_user.role == "ADMIN":
+        return current_user
+    if current_user.role != "RIDER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Unauthorized access. Rider account required."
+        )
+    result = await db.execute(select(Rider).where(Rider.user_id == current_user.id))
+    rider = result.scalars().first()
+    if not rider:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Rider profile not found."
+        )
+    if rider.approval_status != "APPROVED":
+        if rider.approval_status == "REJECTED":
+            detail_msg = "Your rider application was rejected by Admin. You cannot access rider features."
+        else:
+            detail_msg = "Your registration has been submitted successfully. Your account is waiting for Admin approval. You will be able to access the Rider Dashboard once your account is approved."
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=detail_msg
+        )
+    return current_user
+
